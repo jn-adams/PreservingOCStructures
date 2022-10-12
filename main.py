@@ -180,7 +180,7 @@ accuracy_dict = {}
 
 
 
-for k in [5]:
+for k in [2,3,4,5,6]:
     if True:
         print("___________________________")
         print("Prediction with Graph Structure and GNN")
@@ -212,7 +212,7 @@ for k in [5]:
         # get_ordered_event_list(x_train[idx])['events']
         # get_ordered_event_list(x_train[idx])['features']
 
-        baseline_MAE, train_MAE, val_MAE, test_MAE = GNN_prediction(layer_size,x_train, y_train,x_val, y_val,x_test, y_test, batch_size=4, lr = 0.001)
+        baseline_MAE, train_MAE, val_MAE, test_MAE = GNN_prediction(layer_size,x_train, y_train,x_val, y_val,x_test, y_test, batch_size=4, lr = 0.005)
         # record performance of GNN
         accuracy_dict['graph_gnn_k_' + str(k)] = {
             'baseline_MAE': baseline_MAE,
@@ -259,7 +259,7 @@ for k in [5]:
         # get_ordered_event_list(x_train[idx])['features']
 
         baseline_MAE, train_MAE, val_MAE, test_MAE = GNN_prediction(layer_size, x_train, y_train, x_val, y_val, x_test,
-                                                                    y_test, batch_size=4, lr = 0.001)
+                                                                    y_test, batch_size=4, lr = 0.005)
         # record performance of GNN
         accuracy_dict['flat_gnn_k_' + str(k)] = {
             'baseline_MAE': baseline_MAE,
@@ -273,6 +273,7 @@ for k in [5]:
         print("___________________________")
         print("Prediction with Graph Embedding")
         print("___________________________")
+
 
 pd.DataFrame(accuracy_dict).to_csv("results.csv")
 
