@@ -166,7 +166,9 @@ def get_ordered_event_list(graph):
     return {'events': event_df, 'features': feature_df}
 
 # show graph with different labels on nodes
-def visualize_graph(graph, labels = 'node_id', font_size = 8):
+def visualize_graph(graph, add_str, labels = 'node_id', font_size = 8, save = True):
+    if save:
+        f =plt.figure()
     nx_G = graph.to_networkx(node_attrs = ['remaining_time', 'event_indices'])
     pos = nx.kamada_kawai_layout(nx_G)
     if labels == 'node_id':
@@ -179,6 +181,8 @@ def visualize_graph(graph, labels = 'node_id', font_size = 8):
         viz_labels = nx.get_node_attributes(nx_G, 'event_indices')
         viz_labels = {k: v.numpy() for k, v in viz_labels.items()}
         nx.draw(nx_G, pos, labels = viz_labels, node_color=[[.7, .7, .7]], font_size = font_size)
+    if save:
+        f.savefig("graph"+labels+add_str+".png")
 
 # show ordered remaining times per event
 def show_remaining_times(graph, plot = True):
@@ -188,17 +192,18 @@ def show_remaining_times(graph, plot = True):
     return res
 
 # visualize graph instance
-def visualize_instance(graph, label):
+def visualize_instance(graph, txt, label):
     fig = plt.figure()
     ax1 = fig.add_subplot(221)
-    ax1 = visualize_graph(graph, labels = 'node_id')
+    ax1 = visualize_graph(graph,"", labels = 'node_id', save = False)
     ax2 = fig.add_subplot(222)
-    ax2 = visualize_graph(graph, labels = 'event_indices')
+    ax2 = visualize_graph(graph,"", labels = 'event_indices',save = False)
     ax3 = fig.add_subplot(223)
-    ax3 = visualize_graph(graph, labels = 'remaining_time')
+    ax3 = visualize_graph(graph,"", labels = 'remaining_time',save = False)
     ax4 = fig.add_subplot(224)
     ax4 = show_remaining_times(graph, plot = True)
-    fig.suptitle('Label: Remaining time %s'%np.round(label.numpy(), 9))
+    #fig.suptitle('Label: Remaining time %s'%np.round(label.numpy(), 9))
+    fig.savefig("instance"+txt+".png")
 
 # custom data loader for yielding batches of graphs
 class GraphDataLoader(tf.keras.utils.Sequence):
@@ -257,13 +262,18 @@ class GCN(tf.keras.Model):
         self.dense = tf.keras.layers.Dense(1, activation = 'linear')
 
     def call(self, g, input_features):
+        #print(g.ndata['features'])
         h = self.gconv_1(g, g.ndata['features'])
-        h = tf.keras.activations.relu(h)
+        h = tf.keras.activations.gelu(h)
+        #print(h)
         h = self.gconv_2(g, h)
-        h = tf.keras.activations.relu(h)
+        #print(h)
+        h = tf.keras.activations.gelu(h)
+        #print(h)
         x = tf.reshape(h, (int(h.shape[0] / g.ndata['k'][0]), (g.ndata['k'][0] * h.shape[1])))
         out = self.dense(x)
-
+        #print(out)
+        #adsfadf
         return out
 
 # function to evaluate model on specific data loader
