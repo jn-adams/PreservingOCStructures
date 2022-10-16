@@ -9,6 +9,7 @@ from sklearn.metrics import accuracy_score
 import pandas as pd
 import networkx as nx
 from graph_embedding import convert_to_nx_graphs, embed
+from sklearn.linear_model import LinearRegression
 
 params = {"sap": {"batch_size":4,"lr":0.001,"epochs":15}}
 
@@ -72,7 +73,7 @@ def GNN_prediction(layer_size, x_train, y_train, x_val, y_val, x_test, y_test, b
     loss_function = tf.keras.losses.MeanAbsoluteError()
 
     # run tensorflow training loop
-    epochs = 30#3#30
+    epochs = 12#3#30
     iter_idx = np.arange(0, train_loader.__len__())
     loss_history = []
     val_loss_history = []
@@ -183,34 +184,13 @@ for g in feature_storage.feature_graphs:
 accuracy_dict = {}
 
 
-train_nx_feature_graphs = []
-test_nx_feature_graphs = []
-train_target = []
-test_target = []
-k = 3
-for i in feature_storage.training_indices:
-    g = feature_storage.feature_graphs[i]
-    converted_subgraphs, extracted_targets = convert_to_nx_graphs(g,ocel,k,target=("event_remaining_time",()),from_start=False)
-    train_nx_feature_graphs+=converted_subgraphs
-    train_target+= extracted_targets
-
-for i in feature_storage.training_indices:
-    g = feature_storage.feature_graphs[i]
-    converted_subgraphs, extracted_targets = convert_to_nx_graphs(g,ocel,k,target=("event_remaining_time",()),from_start=False)
-    test_nx_feature_graphs+=converted_subgraphs
-    test_target+= extracted_targets
 
 
 
-#IGE has problems with sparseness
-for embedding_technique in ['FEATHER-G', 'Graph2Vec', 'NetLSD', 'WaveletCharacteristic',
-                            #'IGE',
-                            'LDP', 'GL2Vec', 'SF', 'FGSD']:#, 'TAIWAN']:
-    X_train, X_test = embed(train_nx_feature_graphs,test_nx_feature_graphs, embedding_technique)
-    print(X_train.shape)
-    print(X_test.shape)
 
-for k in []:
+
+
+for k in [4,5]:
     if True:
         print("___________________________")
         print("Prediction with Graph Structure and GNN")
@@ -303,7 +283,43 @@ for k in []:
         print("___________________________")
         print("Prediction with Graph Embedding")
         print("___________________________")
+        train_nx_feature_graphs = []
+        test_nx_feature_graphs = []
+        train_target = []
+        test_target = []
+        for i in feature_storage.training_indices:
+            g = feature_storage.feature_graphs[i]
+            converted_subgraphs, extracted_targets = convert_to_nx_graphs(g, ocel, k,
+                                                                          target=("event_remaining_time", ()),
+                                                                          from_start=False)
+            train_nx_feature_graphs += converted_subgraphs
+            train_target += extracted_targets
 
+        for i in feature_storage.training_indices:
+            g = feature_storage.feature_graphs[i]
+            converted_subgraphs, extracted_targets = convert_to_nx_graphs(g, ocel, k,
+                                                                          target=("event_remaining_time", ()),
+                                                                          from_start=False)
+            test_nx_feature_graphs += converted_subgraphs
+            test_target += extracted_targets
+
+        # IGE has problems with sparseness
+        for embedding_technique in ['FEATHER-G', 'Graph2Vec', 'NetLSD', 'WaveletCharacteristic',
+                                    # 'IGE',
+                                    'LDP', 'GL2Vec', 'SF', 'FGSD']:  # , 'TAIWAN']:
+            X_train, X_test = embed(train_nx_feature_graphs, test_nx_feature_graphs, embedding_technique)
+            print(X_train.shape)
+            print(X_test.shape)
+            model = LinearRegression()
+            model.fit(X_train, train_target)
+            res = model.predict(X_test)
+            print(mean_absolute_error(test_target, res))
+            accuracy_dict['embed_reg_'+ embedding_technique+'_k_' + str(k)] = {
+                'baseline_MAE': 0,
+                'train_MAE': 0,
+                'val_MAE': 0,
+                'test_MAE': mean_absolute_error(test_target, res)
+            }
 
 pd.DataFrame(accuracy_dict).to_csv("results.csv")
 
