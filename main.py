@@ -8,7 +8,7 @@ from sklearn.metrics import mean_absolute_error
 from sklearn.metrics import accuracy_score
 import pandas as pd
 import networkx as nx
-from graph_embedding import convert_to_nx_graph, embed
+from graph_embedding import convert_to_nx_graphs, embed
 
 params = {"sap": {"batch_size":4,"lr":0.001,"epochs":15}}
 
@@ -183,16 +183,34 @@ for g in feature_storage.feature_graphs:
 accuracy_dict = {}
 
 
-nx_feature_graphs = []
-for g in feature_storage.feature_graphs:
-    converted_g = convert_to_nx_graph(g)
-    nx_feature_graphs.append(converted_g)
+train_nx_feature_graphs = []
+test_nx_feature_graphs = []
+train_target = []
+test_target = []
+k = 3
+for i in feature_storage.training_indices:
+    g = feature_storage.feature_graphs[i]
+    converted_subgraphs, extracted_targets = convert_to_nx_graphs(g,ocel,k,target=("event_remaining_time",()),from_start=False)
+    train_nx_feature_graphs+=converted_subgraphs
+    train_target+= extracted_targets
 
-for embedding_technique in ['FEATHER-G', 'Graph2Vec', 'NetLSD', 'WaveletCharacteristic', 'IGE', 'LDP', 'GL2Vec', 'SF', 'FGSD', 'TAIWAN']:
-    X = embed(nx_feature_graphs, embedding_technique)
-    print(X.shape)
+for i in feature_storage.training_indices:
+    g = feature_storage.feature_graphs[i]
+    converted_subgraphs, extracted_targets = convert_to_nx_graphs(g,ocel,k,target=("event_remaining_time",()),from_start=False)
+    test_nx_feature_graphs+=converted_subgraphs
+    test_target+= extracted_targets
 
-for k in [2,3]:
+
+
+#IGE has problems with sparseness
+for embedding_technique in ['FEATHER-G', 'Graph2Vec', 'NetLSD', 'WaveletCharacteristic',
+                            #'IGE',
+                            'LDP', 'GL2Vec', 'SF', 'FGSD']:#, 'TAIWAN']:
+    X_train, X_test = embed(train_nx_feature_graphs,test_nx_feature_graphs, embedding_technique)
+    print(X_train.shape)
+    print(X_test.shape)
+
+for k in []:
     if True:
         print("___________________________")
         print("Prediction with Graph Structure and GNN")

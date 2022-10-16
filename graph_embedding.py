@@ -1,98 +1,142 @@
 import networkx as nx
 
 
-def convert_to_nx_graph(g):
+def convert_to_nx_graphs(g,ocel, k, target, from_start=False):
+    return_graphs = []
+    target_values = []
+
+    ts_pairs = [(idx.event_id, ocel.get_value(idx.event_id, "event_timestamp")) for idx in g.nodes]
+    ts_pairs.sort(key=lambda x: x[1])
+    sorted_idxs = [p[0] for p in ts_pairs]
+    end_index = 0 if from_start else len(sorted_idxs) - k - 1
+
+    #to networkx graph
     nx_graph = nx.Graph()
     g.edges
+    #print(sorted_idxs)
     for edge in g.edges:
         nx_graph.add_edge(edge.source, edge.target)
-        indexed_nx_graph = nx.convert_node_labels_to_integers(nx_graph)
-    return indexed_nx_graph
+    nx.set_node_attributes(nx_graph,{n.event_id:n.attributes for n in g.nodes})
+
+    #extract subgraphs
+    for start in range(0, end_index + 1):
+        subgraph = nx.subgraph(nx_graph, sorted_idxs[start:start + k]).copy()
+        for node in subgraph.nodes():
+            val = subgraph.nodes()[node][target]
+            del subgraph.nodes()[node][target]
+            #val = node.attributes.pop[target]
+            if node == sorted_idxs[start+k-1]:
+                target_values.append(val)
+        indexed_subgraph = nx.convert_node_labels_to_integers(subgraph)
+
+        return_graphs.append(indexed_subgraph)
+    return return_graphs, target_values
 
 
-def embed(nx_feature_graphs, technique):
+
+def embed(train_nx_feature_graphs,test_nx_feature_graphs, technique):
     if technique == 'FEATHER-G':
         # FEATHER-G from Rozemberczki et al.: Characteristic Functions on Graphs: Birds of a Feather, from Statistical Descriptors to Parametric Models (CIKM 2020)
         from karateclub import FeatherGraph
         model = FeatherGraph()
-        model.fit(nx_feature_graphs)
+        model.fit(train_nx_feature_graphs)
         X = model.get_embedding()
+        model.fit(test_nx_feature_graphs)
+        X_test = model.get_embedding()
     elif technique == 'Graph2Vec':
         # Graph2Vec from Narayanan et al.: Graph2Vec: Learning Distributed Representations of Graphs (MLGWorkshop 2017)
         from karateclub import Graph2Vec
         # dimensions: int = 128
         model = Graph2Vec()
-        model.fit(nx_feature_graphs)
+        model.fit(train_nx_feature_graphs)
         X = model.get_embedding()
+        model.fit(test_nx_feature_graphs)
+        X_test = model.get_embedding()
 
     elif technique == 'NetLSD':
         # NetLSD from Tsitsulin et al.: NetLSD: Hearing the Shape of a Graph (KDD 2018)
         from karateclub import NetLSD
         # scale_steps: int = 250
         model = NetLSD()
-        model.fit(nx_feature_graphs)
+        model.fit(train_nx_feature_graphs)
         X = model.get_embedding()
+        model.fit(test_nx_feature_graphs)
+        X_test = model.get_embedding()
 
     elif technique == 'WaveletCharacteristic':
         # WaveletCharacteristic from Wang et al.: Graph Embedding via Diffusion-Wavelets-Based Node Feature Distribution Characterization (CIKM 2021)
         from karateclub import WaveletCharacteristic
         # ?
         model = WaveletCharacteristic()
-        model.fit(nx_feature_graphs)
+        model.fit(train_nx_feature_graphs)
         X = model.get_embedding()
+        model.fit(test_nx_feature_graphs)
+        X_test = model.get_embedding()
 
     elif technique == 'IGE':
         # IGE from Galland et al.: Invariant Embedding for Graph Classification (ICML 2019 LRGSD Workshop)
         from karateclub import IGE
         # ?
         model = IGE()
-        model.fit(nx_feature_graphs)
+        model.fit(train_nx_feature_graphs)
         X = model.get_embedding()
+        model.fit(test_nx_feature_graphs)
+        X_test = model.get_embedding()
 
     elif technique == 'LDP':
         # LDP from Cai et al.: A Simple Yet Effective Baseline for Non-Attributed Graph Classification (ICLR 2019)
         from karateclub import LDP
         # ?
         model = LDP()
-        model.fit(nx_feature_graphs)
+        model.fit(train_nx_feature_graphs)
         X = model.get_embedding()
+        model.fit(test_nx_feature_graphs)
+        X_test = model.get_embedding()
 
     elif technique == 'GeoScattering':
         # GeoScattering from Gao et al.: Geometric Scattering for Graph Data Analysis (ICML 2019)
         from karateclub import GeoScattering
         # ?
         model = GeoScattering()
-        model.fit(nx_feature_graphs)
+        model.fit(train_nx_feature_graphs)
         X = model.get_embedding()
+        model.fit(test_nx_feature_graphs)
+        X_test = model.get_embedding()
 
     elif technique == 'GL2Vec':
         # GL2Vec from Chen and Koga: GL2Vec: Graph Embedding Enriched by Line Graphs with Edge Features (ICONIP 2019)
         from karateclub import GL2Vec
         # dimensions: int = 128
         model = GL2Vec()
-        model.fit(nx_feature_graphs)
+        model.fit(train_nx_feature_graphs)
         X = model.get_embedding()
+        model.fit(test_nx_feature_graphs)
+        X_test = model.get_embedding()
 
     elif technique == 'SF':
         # SF from de Lara and Pineau: A Simple Baseline Algorithm for Graph Classification (NeurIPS RRL Workshop 2018)
         from karateclub import SF
         # dimensions: int = 128
         model = SF()
-        model.fit(nx_feature_graphs)
+        model.fit(train_nx_feature_graphs)
         X = model.get_embedding()
+        model.fit(test_nx_feature_graphs)
+        X_test = model.get_embedding()
 
     elif technique == 'FGSD':
         # FGSD from Verma and Zhang: Hunt For The Unique, Stable, Sparse And Fast Feature Learning On Graphs (NeurIPS 2017)
         from karateclub import FGSD
         # hist_bins: int = 200
         model = FGSD()
-        model.fit(nx_feature_graphs)
+        model.fit(train_nx_feature_graphs)
         X = model.get_embedding()
+        model.fit(test_nx_feature_graphs)
+        X_test = model.get_embedding()
 
     else:
         raise AttributeError(f'{technique} does not exist.')
 
-    return X
+    return X, X_test
 
 
 def test_graph_embedding(X, y):
