@@ -192,7 +192,7 @@ for embedding_technique in ['FEATHER-G', 'Graph2Vec', 'NetLSD', 'WaveletCharacte
     X = embed(nx_feature_graphs, embedding_technique)
     print(X.shape)
 
-for k in [2,3,4,5,6]:
+for k in [2,3]:
     if True:
         print("___________________________")
         print("Prediction with Graph Structure and GNN")
