@@ -4,11 +4,14 @@ from ocpa.objects.log.importer.ocel import factory as ocel_import_factory
 from ocpa.algo.predictive_monitoring import factory as predictive_monitoring
 from ocpa.objects.log.util import misc as log_util
 from sklearn.model_selection import train_test_split
-from sklearn.metrics import  mean_absolute_error
+from sklearn.metrics import mean_absolute_error
 from sklearn.metrics import accuracy_score
 import pandas as pd
+import networkx as nx
+from graph_embedding import convert_to_nx_graph, embed
 
 params = {"sap": {"batch_size":4,"lr":0.001,"epochs":15}}
+
 
 def filter_process_executions(ocel, cases):
     '''
@@ -30,8 +33,9 @@ def filter_process_executions(ocel, cases):
     new_log = log_util.copy_log_from_df(new_event_df, ocel.parameters)
     return new_log
 
-def GNN_prediction(layer_size,x_train, y_train,x_val, y_val,x_test, y_test, batch_size = 64, lr = 0.01 ):
-    #return 0,0,0,0
+
+def GNN_prediction(layer_size, x_train, y_train, x_val, y_val, x_test, y_test, batch_size=64, lr=0.01):
+    # return 0,0,0,0
 
     train_loader = GraphDataLoader(
         x_train,
@@ -126,19 +130,19 @@ def GNN_prediction(layer_size,x_train, y_train,x_val, y_val,x_test, y_test, batc
 
     return baseline,mean_absolute_error(train_predictions, train_labels),mean_absolute_error(val_predictions, val_labels),mean_absolute_error(test_predictions, test_labels)
 
-filename = "BPI2017-Final.csv"
-object_types = ["application", "offer"]
-parameters = {"obj_names":object_types,
-              "val_names":[],
-              "act_name":"event_activity",
-              "time_name":"event_timestamp",
-              "sep":","}
-ocel = csv_import_factory.apply(file_path= filename,parameters = parameters)
-ocel = filter_process_executions(ocel, ocel.process_executions[0:100])
+# filename = "BPI2017-Final.csv"
+# object_types = ["application", "offer"]
+# parameters = {"obj_names":object_types,
+#               "val_names":[],
+#               "act_name":"event_activity",
+#               "time_name":"event_timestamp",
+#               "sep":","}
+# ocel = csv_import_factory.apply(file_path= filename,parameters = parameters)
+# ocel = filter_process_executions(ocel, ocel.process_executions[0:1000])
 
 
-# filename = "p2p-normal.jsonocel"
-# ocel = ocel_import_factory.apply(filename)
+filename = "p2p-normal.jsonocel"
+ocel = ocel_import_factory.apply(filename)
 
 #filename = "running-example.jsonocel"
 #parameters = {"execution_extraction": "leading_type",
@@ -179,8 +183,16 @@ for g in feature_storage.feature_graphs:
 accuracy_dict = {}
 
 
+nx_feature_graphs = []
+for g in feature_storage.feature_graphs:
+    converted_g = convert_to_nx_graph(g)
+    nx_feature_graphs.append(converted_g)
 
-for k in [2,3,4,5,6,7,8]:
+for embedding_technique in ['FEATHER-G', 'Graph2Vec', 'NetLSD', 'WaveletCharacteristic', 'IGE', 'LDP', 'GL2Vec', 'SF', 'FGSD', 'TAIWAN']:
+    X = embed(nx_feature_graphs, embedding_technique)
+    print(X.shape)
+
+for k in [2,3,4,5,6]:
     if True:
         print("___________________________")
         print("Prediction with Graph Structure and GNN")
@@ -212,7 +224,7 @@ for k in [2,3,4,5,6,7,8]:
         # get_ordered_event_list(x_train[idx])['events']
         # get_ordered_event_list(x_train[idx])['features']
 
-        baseline_MAE, train_MAE, val_MAE, test_MAE = GNN_prediction(layer_size,x_train, y_train,x_val, y_val,x_test, y_test, batch_size=128, lr = 0.01)
+        baseline_MAE, train_MAE, val_MAE, test_MAE = GNN_prediction(layer_size,x_train, y_train,x_val, y_val,x_test, y_test, batch_size=4, lr = 0.005)
         # record performance of GNN
         accuracy_dict['graph_gnn_k_' + str(k)] = {
             'baseline_MAE': baseline_MAE,
@@ -259,7 +271,7 @@ for k in [2,3,4,5,6,7,8]:
         # get_ordered_event_list(x_train[idx])['features']
 
         baseline_MAE, train_MAE, val_MAE, test_MAE = GNN_prediction(layer_size, x_train, y_train, x_val, y_val, x_test,
-                                                                    y_test, batch_size=128, lr = 0.01)
+                                                                    y_test, batch_size=4, lr = 0.005)
         # record performance of GNN
         accuracy_dict['flat_gnn_k_' + str(k)] = {
             'baseline_MAE': baseline_MAE,
@@ -275,5 +287,5 @@ for k in [2,3,4,5,6,7,8]:
         print("___________________________")
 
 
-pd.DataFrame(accuracy_dict).to_csv("results_BPI2017.csv")
+pd.DataFrame(accuracy_dict).to_csv("results.csv")
 

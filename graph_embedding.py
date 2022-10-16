@@ -1,0 +1,108 @@
+import networkx as nx
+
+
+def convert_to_nx_graph(g):
+    nx_graph = nx.Graph()
+    g.edges
+    for edge in g.edges:
+        nx_graph.add_edge(edge.source, edge.target)
+        indexed_nx_graph = nx.convert_node_labels_to_integers(nx_graph)
+    return indexed_nx_graph
+
+
+def embed(nx_feature_graphs, technique):
+    if technique == 'FEATHER-G':
+        # FEATHER-G from Rozemberczki et al.: Characteristic Functions on Graphs: Birds of a Feather, from Statistical Descriptors to Parametric Models (CIKM 2020)
+        from karateclub import FeatherGraph
+        model = FeatherGraph()
+        model.fit(nx_feature_graphs)
+        X = model.get_embedding()
+    elif technique == 'Graph2Vec':
+        # Graph2Vec from Narayanan et al.: Graph2Vec: Learning Distributed Representations of Graphs (MLGWorkshop 2017)
+        from karateclub import Graph2Vec
+        # dimensions: int = 128
+        model = Graph2Vec()
+        model.fit(nx_feature_graphs)
+        X = model.get_embedding()
+
+    elif technique == 'NetLSD':
+        # NetLSD from Tsitsulin et al.: NetLSD: Hearing the Shape of a Graph (KDD 2018)
+        from karateclub import NetLSD
+        # scale_steps: int = 250
+        model = NetLSD()
+        model.fit(nx_feature_graphs)
+        X = model.get_embedding()
+
+    elif technique == 'WaveletCharacteristic':
+        # WaveletCharacteristic from Wang et al.: Graph Embedding via Diffusion-Wavelets-Based Node Feature Distribution Characterization (CIKM 2021)
+        from karateclub import WaveletCharacteristic
+        # ?
+        model = WaveletCharacteristic()
+        model.fit(nx_feature_graphs)
+        X = model.get_embedding()
+
+    elif technique == 'IGE':
+        # IGE from Galland et al.: Invariant Embedding for Graph Classification (ICML 2019 LRGSD Workshop)
+        from karateclub import IGE
+        # ?
+        model = IGE()
+        model.fit(nx_feature_graphs)
+        X = model.get_embedding()
+
+    elif technique == 'LDP':
+        # LDP from Cai et al.: A Simple Yet Effective Baseline for Non-Attributed Graph Classification (ICLR 2019)
+        from karateclub import LDP
+        # ?
+        model = LDP()
+        model.fit(nx_feature_graphs)
+        X = model.get_embedding()
+
+    elif technique == 'GeoScattering':
+        # GeoScattering from Gao et al.: Geometric Scattering for Graph Data Analysis (ICML 2019)
+        from karateclub import GeoScattering
+        # ?
+        model = GeoScattering()
+        model.fit(nx_feature_graphs)
+        X = model.get_embedding()
+
+    elif technique == 'GL2Vec':
+        # GL2Vec from Chen and Koga: GL2Vec: Graph Embedding Enriched by Line Graphs with Edge Features (ICONIP 2019)
+        from karateclub import GL2Vec
+        # dimensions: int = 128
+        model = GL2Vec()
+        model.fit(nx_feature_graphs)
+        X = model.get_embedding()
+
+    elif technique == 'SF':
+        # SF from de Lara and Pineau: A Simple Baseline Algorithm for Graph Classification (NeurIPS RRL Workshop 2018)
+        from karateclub import SF
+        # dimensions: int = 128
+        model = SF()
+        model.fit(nx_feature_graphs)
+        X = model.get_embedding()
+
+    elif technique == 'FGSD':
+        # FGSD from Verma and Zhang: Hunt For The Unique, Stable, Sparse And Fast Feature Learning On Graphs (NeurIPS 2017)
+        from karateclub import FGSD
+        # hist_bins: int = 200
+        model = FGSD()
+        model.fit(nx_feature_graphs)
+        X = model.get_embedding()
+
+    else:
+        raise AttributeError(f'{technique} does not exist.')
+
+    return X
+
+
+def test_graph_embedding(X, y):
+    from sklearn.model_selection import train_test_split
+    from sklearn.metrics import roc_auc_score
+    from sklearn.linear_model import LogisticRegression
+    X_train, X_test, y_train, y_test = train_test_split(
+        X, y, test_size=0.2, random_state=42)
+
+    downstream_model = LogisticRegression(random_state=0).fit(X_train, y_train)
+    y_hat = downstream_model.predict_proba(X_test)[:, 1]
+    auc = roc_auc_score(y_test, y_hat)
+    print('AUC: {:.4f}'.format(auc))
