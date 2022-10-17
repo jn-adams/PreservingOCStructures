@@ -31,7 +31,8 @@ import globals
 
 # create graph dataset & labels for remaining time regression
 def generate_sequential_graph_dataset(feature_graph_list, indices, ocel_object, k):
-
+    # REMOVE
+    #set_list = []
     idx = indices
     graph_list = []
     label_list = []
@@ -73,7 +74,7 @@ def generate_sequential_graph_dataset(feature_graph_list, indices, ocel_object, 
         for idx in sorted_node_indices:
             node = graph.nodes[idx]
             node_label = node.attributes.pop(('event_remaining_time', ()))
-            node_features = [v for k, v in node.attributes.items()]
+            node_features = [v for _, v in node.attributes.items()]
             event_indices.append(node.event_id)
             labels.append(node_label)
             features.append(node_features)
@@ -81,6 +82,8 @@ def generate_sequential_graph_dataset(feature_graph_list, indices, ocel_object, 
         dgl_graph.ndata['k'] = tf.constant([k for i in range(0,len(event_indices))], dtype = tf.int64)
         dgl_graph.ndata['features'] = tf.constant(features, dtype=tf.float32)
         dgl_graph.ndata['remaining_time'] = tf.constant(labels, dtype=tf.float32)
+
+
 
         # extract subgraph and label for each node set as terminal node
         #k = 4
@@ -92,7 +95,7 @@ def generate_sequential_graph_dataset(feature_graph_list, indices, ocel_object, 
                 if not np.all(dgl.to_bidirected(subgraph).in_degrees() > 0):
                     # raise ValueError('ERROR: 0-in-degree nodes found!')
                     pass
-
+                #set_list.append(sorted([int(x) for x in subgraph.ndata['event_indices'].numpy().tolist()]))
                 graph_list.append(subgraph)
                 label_list.append(subgraph_label)
 
@@ -132,7 +135,7 @@ def generate_graph_dataset(feature_graph_list, indices, ocel_object, k):
         for idx in sorted_node_indices:
             node = graph.nodes[idx]
             node_label = node.attributes.pop(('event_remaining_time', ()))
-            node_features = [v for k, v in node.attributes.items()]
+            node_features = [v for _, v in node.attributes.items()]
             event_indices.append(node.event_id)
             labels.append(node_label)
             features.append(node_features)
@@ -150,7 +153,7 @@ def generate_graph_dataset(feature_graph_list, indices, ocel_object, k):
                 if not np.all(dgl.to_bidirected(subgraph).in_degrees() > 0):
                     # raise ValueError('ERROR: 0-in-degree nodes found!')
                     pass
-
+                #print(subgraph.ndata['event_indices'])
                 graph_list.append(subgraph)
                 label_list.append(subgraph_label)
 

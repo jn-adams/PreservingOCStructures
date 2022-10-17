@@ -10,6 +10,8 @@ import pandas as pd
 import networkx as nx
 from graph_embedding import convert_to_nx_graphs, embed
 from sklearn.linear_model import LinearRegression
+from sklearn.neural_network import MLPRegressor
+from tqdm import tqdm
 
 params = {"sap": {"batch_size":4,"lr":0.001,"epochs":15}}
 
@@ -73,7 +75,7 @@ def GNN_prediction(layer_size, x_train, y_train, x_val, y_val, x_test, y_test, b
     loss_function = tf.keras.losses.MeanAbsoluteError()
 
     # run tensorflow training loop
-    epochs = 12#3#30
+    epochs = 1#3#30
     iter_idx = np.arange(0, train_loader.__len__())
     loss_history = []
     val_loss_history = []
@@ -131,19 +133,19 @@ def GNN_prediction(layer_size, x_train, y_train, x_val, y_val, x_test, y_test, b
 
     return baseline,mean_absolute_error(train_predictions, train_labels),mean_absolute_error(val_predictions, val_labels),mean_absolute_error(test_predictions, test_labels)
 
-# filename = "BPI2017-Final.csv"
-# object_types = ["application", "offer"]
-# parameters = {"obj_names":object_types,
-#               "val_names":[],
-#               "act_name":"event_activity",
-#               "time_name":"event_timestamp",
-#               "sep":","}
-# ocel = csv_import_factory.apply(file_path= filename,parameters = parameters)
-# ocel = filter_process_executions(ocel, ocel.process_executions[0:1000])
+filename = "BPI2017-Final.csv"
+object_types = ["application", "offer"]
+parameters = {"obj_names":object_types,
+              "val_names":[],
+              "act_name":"event_activity",
+              "time_name":"event_timestamp",
+              "sep":","}
+ocel = csv_import_factory.apply(file_path= filename,parameters = parameters)
+#ocel = filter_process_executions(ocel, ocel.process_executions[0:200])
 
 
-filename = "p2p-normal.jsonocel"
-ocel = ocel_import_factory.apply(filename)
+# filename = "p2p-normal.jsonocel"
+# ocel = ocel_import_factory.apply(filename)
 
 #filename = "running-example.jsonocel"
 #parameters = {"execution_extraction": "leading_type",
@@ -185,13 +187,16 @@ accuracy_dict = {}
 
 
 
+g_set_list_t =[]
+g_set_list_te = []
+seq_set_list = []
+seq_set_list_v = []
+seq_set_list_t = []
 
 
 
-
-
-for k in [4,5]:
-    if True:
+for k in [2,3,4,5,6,7,8]:
+    if False:
         print("___________________________")
         print("Prediction with Graph Structure and GNN")
         print("___________________________")
@@ -235,7 +240,7 @@ for k in [4,5]:
 
 
 
-    if True:
+    if False:
         print("___________________________")
         print("Prediction with Sequential Structure and GNN")
         print("___________________________")
@@ -251,10 +256,13 @@ for k in [4,5]:
         # x_train, y_train = dgl.load_graphs('train_graph_dataset')
         # y_train = y_train['remaining_time']
         x_val, y_val = generate_sequential_graph_dataset(feature_storage.feature_graphs, val_idx, ocel, k = k)
+
         # dgl.save_graphs('val_graph_dataset', x_val, labels = {'remaining_time': tf.constant(y_val)})
         # x_val, y_val = dgl.load_graphs('val_graph_dataset')
         # y_val = y_val['remaining_time']
         x_test, y_test = generate_sequential_graph_dataset(feature_storage.feature_graphs, feature_storage.test_indices, ocel, k = k)
+
+
         # dgl.save_graphs('test_graph_dataset', x_test, labels = {'remaining_time': tf.constant(y_test)})
         # x_test, y_test = dgl.load_graphs('test_graph_dataset')
         # y_test = y_test['remaining_time']
@@ -287,15 +295,17 @@ for k in [4,5]:
         test_nx_feature_graphs = []
         train_target = []
         test_target = []
-        for i in feature_storage.training_indices:
+        print("Constructing Subgraphs ")
+        for i in tqdm(feature_storage.training_indices):
             g = feature_storage.feature_graphs[i]
             converted_subgraphs, extracted_targets = convert_to_nx_graphs(g, ocel, k,
                                                                           target=("event_remaining_time", ()),
                                                                           from_start=False)
+
             train_nx_feature_graphs += converted_subgraphs
             train_target += extracted_targets
 
-        for i in feature_storage.training_indices:
+        for i in tqdm(feature_storage.test_indices):
             g = feature_storage.feature_graphs[i]
             converted_subgraphs, extracted_targets = convert_to_nx_graphs(g, ocel, k,
                                                                           target=("event_remaining_time", ()),
@@ -307,19 +317,39 @@ for k in [4,5]:
         for embedding_technique in ['FEATHER-G', 'Graph2Vec', 'NetLSD', 'WaveletCharacteristic',
                                     # 'IGE',
                                     'LDP', 'GL2Vec', 'SF', 'FGSD']:  # , 'TAIWAN']:
-            X_train, X_test = embed(train_nx_feature_graphs, test_nx_feature_graphs, embedding_technique)
-            print(X_train.shape)
-            print(X_test.shape)
-            model = LinearRegression()
-            model.fit(X_train, train_target)
-            res = model.predict(X_test)
-            print(mean_absolute_error(test_target, res))
-            accuracy_dict['embed_reg_'+ embedding_technique+'_k_' + str(k)] = {
-                'baseline_MAE': 0,
-                'train_MAE': 0,
-                'val_MAE': 0,
-                'test_MAE': mean_absolute_error(test_target, res)
-            }
+            try:
+                X_train, X_test = embed(train_nx_feature_graphs, test_nx_feature_graphs, embedding_technique,size = 10*k)
+                print(X_train.shape)
+                print(X_test.shape)
+                model = LinearRegression()
+                model.fit(X_train, train_target)
+                res = model.predict(X_test)
+                print(mean_absolute_error(test_target, res))
+                accuracy_dict['embed_reg_'+ embedding_technique+'_k_' + str(k)] = {
+                    'baseline_MAE': 0,
+                    'train_MAE': 0,
+                    'val_MAE': 0,
+                    'test_MAE': mean_absolute_error(test_target, res)
+                }
+                regr = MLPRegressor(random_state=3, max_iter=500,hidden_layer_sizes=(10,10,)).fit(X_train, train_target)
+                res = regr.predict(X_test)
+                print(mean_absolute_error(test_target, res))
+                accuracy_dict['embed_nn_' + embedding_technique + '_k_' + str(k)] = {
+                    'baseline_MAE': 0,
+                    'train_MAE': 0,
+                    'val_MAE': 0,
+                    'test_MAE': mean_absolute_error(test_target, res)
+                }
+            except ValueError:
+                accuracy_dict['embed_reg_' + embedding_technique + '_k_' + str(k)] = {
+                    'baseline_MAE': 0,
+                    'train_MAE': 0,
+                    'val_MAE': 0,
+                    'test_MAE': "NA"
+                }
+        print(pd.DataFrame(accuracy_dict))
 
-pd.DataFrame(accuracy_dict).to_csv("results.csv")
+
+
+pd.DataFrame(accuracy_dict).to_csv("results_tmp.csv")
 
