@@ -1,7 +1,7 @@
 import networkx as nx
 
 
-def convert_to_nx_graphs(g,ocel, k, target, from_start=False):
+def convert_to_nx_graphs(g,ocel, k, target, from_start=False, include_last = True):
 
 
     return_graphs = []
@@ -11,6 +11,8 @@ def convert_to_nx_graphs(g,ocel, k, target, from_start=False):
     ts_pairs.sort(key=lambda x: x[1])
     sorted_idxs = [p[0] for p in ts_pairs]
     end_index = 0 if from_start else len(sorted_idxs) - k
+    if not include_last:
+        end_index -= 1
 
     #to networkx graph
     nx_graph = nx.Graph()

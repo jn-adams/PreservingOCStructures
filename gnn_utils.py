@@ -30,7 +30,7 @@ from copy import deepcopy
 import globals
 
 # create graph dataset & labels for remaining time regression
-def generate_sequential_graph_dataset(feature_graph_list, indices, ocel_object, k):
+def generate_sequential_graph_dataset(feature_graph_list, indices, ocel_object, k, target, include_last=True):
     # REMOVE
     #set_list = []
     idx = indices
@@ -73,7 +73,7 @@ def generate_sequential_graph_dataset(feature_graph_list, indices, ocel_object, 
         features = []
         for idx in sorted_node_indices:
             node = graph.nodes[idx]
-            node_label = node.attributes.pop(('event_remaining_time', ()))
+            node_label = node.attributes.pop(target)
             node_features = [v for _, v in node.attributes.items()]
             event_indices.append(node.event_id)
             labels.append(node_label)
@@ -81,16 +81,19 @@ def generate_sequential_graph_dataset(feature_graph_list, indices, ocel_object, 
         dgl_graph.ndata['event_indices'] = tf.constant(event_indices)
         dgl_graph.ndata['k'] = tf.constant([k for i in range(0,len(event_indices))], dtype = tf.int64)
         dgl_graph.ndata['features'] = tf.constant(features, dtype=tf.float32)
-        dgl_graph.ndata['remaining_time'] = tf.constant(labels, dtype=tf.float32)
+        dgl_graph.ndata[target[0]] = tf.constant(labels, dtype=tf.float32)
 
 
 
         # extract subgraph and label for each node set as terminal node
         #k = 4
         if len(sorted_node_indices) != 0:
-            for i in range(k - 1, len(sorted_node_indices)):
+            correct = 0
+            if not include_last:
+                correct = 1
+            for i in range(k - 1, len(sorted_node_indices)-correct):
                 subgraph = dgl.node_subgraph(dgl_graph, nodes=range(i - (k - 1), i + 1))  # include last event
-                subgraph_label = subgraph.ndata['remaining_time'].numpy()[-1]
+                subgraph_label = subgraph.ndata[target[0]].numpy()[-1]
 
                 if not np.all(dgl.to_bidirected(subgraph).in_degrees() > 0):
                     # raise ValueError('ERROR: 0-in-degree nodes found!')
@@ -103,7 +106,7 @@ def generate_sequential_graph_dataset(feature_graph_list, indices, ocel_object, 
 
 
 # create graph dataset & labels for remaining time regression
-def generate_graph_dataset(feature_graph_list, indices, ocel_object, k):
+def generate_graph_dataset(feature_graph_list, indices, ocel_object, k,target,include_last = True):
 
     idx = indices
     graph_list = []
@@ -134,7 +137,7 @@ def generate_graph_dataset(feature_graph_list, indices, ocel_object, k):
         features = []
         for idx in sorted_node_indices:
             node = graph.nodes[idx]
-            node_label = node.attributes.pop(('event_remaining_time', ()))
+            node_label = node.attributes.pop(target)
             node_features = [v for _, v in node.attributes.items()]
             event_indices.append(node.event_id)
             labels.append(node_label)
@@ -142,13 +145,15 @@ def generate_graph_dataset(feature_graph_list, indices, ocel_object, k):
         dgl_graph.ndata['event_indices'] = tf.constant(event_indices)
         dgl_graph.ndata['k'] = tf.constant([k for i in range(0,len(event_indices))], dtype = tf.int64)
         dgl_graph.ndata['features'] = tf.constant(features, dtype = tf.float32)
-        dgl_graph.ndata['remaining_time'] = tf.constant(labels, dtype = tf.float32)
+        dgl_graph.ndata[target[0]] = tf.constant(labels, dtype = tf.float32)
 
         # extract subgraph and label for each node set as terminal node
-        if len(sorted_node_indices) != 0:
-            for i in range(k-1,len(sorted_node_indices)):
+        correct = 0
+        if not include_last:
+            correct = 1
+        for i in range(k - 1, len(sorted_node_indices) - correct):
                 subgraph = dgl.node_subgraph(dgl_graph, nodes = range(i-(k-1),i+1)) # include last event
-                subgraph_label = subgraph.ndata['remaining_time'].numpy()[-1]
+                subgraph_label = subgraph.ndata[target[0]].numpy()[-1]
 
                 if not np.all(dgl.to_bidirected(subgraph).in_degrees() > 0):
                     # raise ValueError('ERROR: 0-in-degree nodes found!')
@@ -281,6 +286,44 @@ class GCN(tf.keras.Model):
 
 # function to evaluate model on specific data loader
 def evaluate_gnn(data_loader, gnn_model):
+    predictions = []
+    labels = []
+    for batch_id in tqdm(range(data_loader.__len__())):
+        dgl_batch, label_batch = data_loader.__getitem__(batch_id)
+        pred = gnn_model(dgl_batch, dgl_batch.ndata['features']).numpy()
+        predictions.append(pred)
+        labels.append(label_batch.numpy())
+    predictions = np.concatenate(predictions)
+    labels = np.concatenate(labels)
+    return predictions, labels
+
+# custom Graph Convolutional Network as tf.keras subclass for graph classification
+class ClassificationGCN(tf.keras.Model):
+
+    def __init__(self, n_input_feats, n_hidden_feats,n_classes):
+
+        super().__init__()
+        self.gconv_1 = GraphConv(n_input_feats, n_hidden_feats)
+        self.gconv_2 = GraphConv(n_hidden_feats, n_hidden_feats)
+        self.dense = tf.keras.layers.Dense(n_classes, activation = 'linear')
+
+    def call(self, g, input_features):
+        #print(g.ndata['features'])
+        h = self.gconv_1(g, g.ndata['features'])
+        h = tf.keras.activations.gelu(h)
+        #print(h)
+        h = self.gconv_2(g, h)
+        #print(h)
+        h = tf.keras.activations.gelu(h)
+        #print(h)
+        x = tf.reshape(h, (int(h.shape[0] / g.ndata['k'][0]), (g.ndata['k'][0] * h.shape[1])))
+        out = self.dense(x)
+        #print(out)
+        #adsfadf
+        return out
+
+# function to evaluate model on specific data loader
+def evaluate_c_gnn(data_loader, gnn_model):
     predictions = []
     labels = []
     for batch_id in tqdm(range(data_loader.__len__())):

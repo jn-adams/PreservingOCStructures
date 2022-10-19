@@ -1,3 +1,7 @@
+import datetime
+
+import ocpa.algo.predictive_monitoring.factory
+
 from gnn_utils import *
 from ocpa.objects.log.importer.csv import factory as csv_import_factory
 from ocpa.objects.log.importer.ocel import factory as ocel_import_factory
@@ -14,6 +18,31 @@ from sklearn.neural_network import MLPRegressor
 from tqdm import tqdm
 
 params = {"sap": {"batch_size":4,"lr":0.001,"epochs":15}}
+
+NEXT_ACTIVITY = "next_activity"
+def next_activity(node,ocel,params):
+    act = params[0]
+    e_id = node.event_id
+    out_edges = ocel.graph.eog.in_edges(e_id)
+    next_act = 0
+    for (source,target) in out_edges:
+        if ocel.get_value(target,"event_activity") == act:
+            next_act = 1
+            for (source_, target_) in out_edges:
+                if ocel.get_value(target_, "event_timestamp")< ocel.get_value(source_, "event_timestamp"):
+                    next_act = 0
+    return next_act
+
+NEXT_TIMESTAMP = "next_timestamp"
+def next_timestamp(node,ocel,params):
+    e_id = node.event_id
+    out_edges = ocel.graph.eog.in_edges(e_id)
+    if len(out_edges) == 0:
+        return 0
+    return min([ocel.get_value(target,"event_timestamp") for (source,target) in out_edges]).to_pydatetime().timestamp()
+
+ocpa.algo.predictive_monitoring.factory.VERSIONS[ocpa.algo.predictive_monitoring.factory.EVENT_BASED][NEXT_ACTIVITY] = next_activity
+ocpa.algo.predictive_monitoring.factory.VERSIONS[ocpa.algo.predictive_monitoring.factory.EVENT_BASED][NEXT_TIMESTAMP] = next_timestamp
 
 
 def filter_process_executions(ocel, cases):
@@ -37,7 +66,7 @@ def filter_process_executions(ocel, cases):
     return new_log
 
 
-def GNN_prediction(layer_size, x_train, y_train, x_val, y_val, x_test, y_test, batch_size=64, lr=0.01):
+def GNN_prediction(layer_size, x_train, y_train, x_val, y_val, x_test, y_test, batch_size=64, lr=0.01, n_output = 1):
     # return 0,0,0,0
 
     train_loader = GraphDataLoader(
@@ -70,10 +99,17 @@ def GNN_prediction(layer_size, x_train, y_train, x_val, y_val, x_test, y_test, b
 
     # define GCN model
     tf.keras.backend.clear_session()
-    model = GCN(layer_size, layer_size)
-    optimizer = tf.keras.optimizers.Adam(lr=lr)
-    loss_function = tf.keras.losses.MeanAbsoluteError()
-
+    model = None
+    #regression
+    if n_output == 1:
+        model = GCN(layer_size, layer_size)
+        optimizer = tf.keras.optimizers.Adam(lr=lr)
+        loss_function = tf.keras.losses.MeanAbsoluteError()
+    else:
+        model = ClassificationGCN(layer_size,layer_size,n_output)
+        optimizer = tf.keras.optimizers.Adam(lr=lr)
+        loss_function = tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True)
+        metrics = ['accuracy']
     # run tensorflow training loop
     epochs = 1#3#30
     iter_idx = np.arange(0, train_loader.__len__())
@@ -133,19 +169,19 @@ def GNN_prediction(layer_size, x_train, y_train, x_val, y_val, x_test, y_test, b
 
     return baseline,mean_absolute_error(train_predictions, train_labels),mean_absolute_error(val_predictions, val_labels),mean_absolute_error(test_predictions, test_labels)
 
-filename = "BPI2017-Final.csv"
-object_types = ["application", "offer"]
-parameters = {"obj_names":object_types,
-              "val_names":[],
-              "act_name":"event_activity",
-              "time_name":"event_timestamp",
-              "sep":","}
-ocel = csv_import_factory.apply(file_path= filename,parameters = parameters)
+# filename = "BPI2017-Final.csv"
+# object_types = ["application", "offer"]
+# parameters = {"obj_names":object_types,
+#               "val_names":[],
+#               "act_name":"event_activity",
+#               "time_name":"event_timestamp",
+#               "sep":","}
+# ocel = csv_import_factory.apply(file_path= filename,parameters = parameters)
 #ocel = filter_process_executions(ocel, ocel.process_executions[0:200])
 
 
-# filename = "p2p-normal.jsonocel"
-# ocel = ocel_import_factory.apply(filename)
+filename = "p2p-normal.jsonocel"
+ocel = ocel_import_factory.apply(filename)
 
 #filename = "running-example.jsonocel"
 #parameters = {"execution_extraction": "leading_type",
@@ -157,199 +193,214 @@ ocel = csv_import_factory.apply(file_path= filename,parameters = parameters)
 print("Number of process executions: "+str(len(ocel.process_executions)))
 activities = list(set(ocel.log.log["event_activity"].tolist()))
 print(str(len(activities))+" actvities")
-# F = [(predictive_monitoring.EVENT_REMAINING_TIME,()),
-#      (predictive_monitoring.EVENT_PREVIOUS_TYPE_COUNT,("offer",)),
-#      (predictive_monitoring.EVENT_ELAPSED_TIME,())] + [(predictive_monitoring.EVENT_AGG_PREVIOUS_CHAR_VALUES,("event_RequestedAmount",max))] \
-#     + [(predictive_monitoring.EVENT_PRECEDING_ACTIVITES,(act,)) for act in activities]
-
-F = [(predictive_monitoring.EVENT_REMAINING_TIME,()),
-     (predictive_monitoring.EVENT_SYNCHRONIZATION_TIME, ())]#+ [(predictive_monitoring.EVENT_PRECEDING_ACTIVITES,(act,)) for act in activities] #,
-    #+ [(predictive_monitoring.EVENT_PRECEDING_ACTIVITES,(act,)) for act in activities]
-    # (predictive_monitoring.EVENT_FLOW_TIME,())]  \
-    #+ [(predictive_monitoring.EVENT_PRECEDING_ACTIVITES,(act,)) for act in activities]
-
-# F = [(predictive_monitoring.EVENT_REMAINING_TIME,()),
-#     # (predictive_monitoring.EVENT_PREVIOUS_TYPE_COUNT,("GDSRCPT",)),
-#      (predictive_monitoring.EVENT_ELAPSED_TIME,())]  \
-#     + [(predictive_monitoring.EVENT_PRECEDING_ACTIVITES,(act,)) for act in activities]
-
-
-feature_storage = predictive_monitoring.apply(ocel, F, [])
-#replace synchronization time with 0 placeholder for empty feature
-for g in feature_storage.feature_graphs:
-    for n in g.nodes:
-        n.attributes[('event_synchronization_time',())] = 1
-feature_storage.extract_normalized_train_test_split(0.3,state = 3)
-for g in feature_storage.feature_graphs:
-    for n in g.nodes:
-        n.attributes[('event_synchronization_time',())] = 1
-accuracy_dict = {}
-
-
-
-g_set_list_t =[]
-g_set_list_te = []
-seq_set_list = []
-seq_set_list_v = []
-seq_set_list_t = []
-
-
-
-for k in [2,3,4,5,6,7,8]:
-    if False:
-        print("___________________________")
-        print("Prediction with Graph Structure and GNN")
-        print("___________________________")
-
-        layer_size = len(F)-1
-
-        # generate training & test datasets
-        train_idx, val_idx = train_test_split(feature_storage.training_indices, test_size = 0.2)
-        x_train, y_train = generate_graph_dataset(feature_storage.feature_graphs, train_idx, ocel, k = k)
-        # dgl.save_graphs('train_graph_dataset', x_train, labels = {'remaining_time': tf.constant(y_train)})
-        # x_train, y_train = dgl.load_graphs('train_graph_dataset')
-        # y_train = y_train['remaining_time']
-        x_val, y_val = generate_graph_dataset(feature_storage.feature_graphs, val_idx, ocel, k = k)
-        # dgl.save_graphs('val_graph_dataset', x_val, labels = {'remaining_time': tf.constant(y_val)})
-        # x_val, y_val = dgl.load_graphs('val_graph_dataset')
-        # y_val = y_val['remaining_time']
-        x_test, y_test = generate_graph_dataset(feature_storage.feature_graphs, feature_storage.test_indices, ocel, k = k)
-        # dgl.save_graphs('test_graph_dataset', x_test, labels = {'remaining_time': tf.constant(y_test)})
-        # x_test, y_test = dgl.load_graphs('test_graph_dataset')
-        # y_test = y_test['remaining_time']
-        # explore data instances
-        for idx in [3]:
-            visualize_graph(x_train[idx],str(idx)+"graph", labels='node_id')
-            #visualize_graph(x_train[idx],str(idx)+"graph", labels='event_indices')
-        # visualize_graph(x_train[idx], labels = 'remaining_time')
-        # show_remaining_times(x_train[idx])
-        visualize_instance(x_train[idx], "graph", y_train[idx])
-        # get_ordered_event_list(x_train[idx])['events']
-        # get_ordered_event_list(x_train[idx])['features']
-
-        baseline_MAE, train_MAE, val_MAE, test_MAE = GNN_prediction(layer_size,x_train, y_train,x_val, y_val,x_test, y_test, batch_size=4, lr = 0.005)
-        # record performance of GNN
-        accuracy_dict['graph_gnn_k_' + str(k)] = {
-            'baseline_MAE': baseline_MAE,
-            'train_MAE': train_MAE,
-            'val_MAE': val_MAE,
-            'test_MAE': test_MAE
-        }
-        print(pd.DataFrame(accuracy_dict))
 
 
 
 
-    if False:
-        print("___________________________")
-        print("Prediction with Sequential Structure and GNN")
-        print("___________________________")
+for target in [(NEXT_TIMESTAMP,()),(predictive_monitoring.EVENT_REMAINING_TIME,())]:
+    include_last = True
+    if target == (NEXT_TIMESTAMP,()):
+        include_last = False
 
-        layer_size = len(F)-1
+    # F = [(predictive_monitoring.EVENT_REMAINING_TIME,()),
+    #      (predictive_monitoring.EVENT_PREVIOUS_TYPE_COUNT,("offer",)),
+    #      (predictive_monitoring.EVENT_ELAPSED_TIME,())] + [(predictive_monitoring.EVENT_AGG_PREVIOUS_CHAR_VALUES,("event_RequestedAmount",max))] \
+    #     + [(predictive_monitoring.EVENT_PRECEDING_ACTIVITES,(act,)) for act in activities]
+
+    F = [target,
+         (predictive_monitoring.EVENT_SYNCHRONIZATION_TIME, ())]#+ [(predictive_monitoring.EVENT_PRECEDING_ACTIVITES,(act,)) for act in activities] #,
+        #+ [(predictive_monitoring.EVENT_PRECEDING_ACTIVITES,(act,)) for act in activities]
+        # (predictive_monitoring.EVENT_FLOW_TIME,())]  \
+        #+ [(predictive_monitoring.EVENT_PRECEDING_ACTIVITES,(act,)) for act in activities]
+
+    # F = [(predictive_monitoring.EVENT_REMAINING_TIME,()),
+    #     # (predictive_monitoring.EVENT_PREVIOUS_TYPE_COUNT,("GDSRCPT",)),
+    #      (predictive_monitoring.EVENT_ELAPSED_TIME,())]  \
+    #     + [(predictive_monitoring.EVENT_PRECEDING_ACTIVITES,(act,)) for act in activities]
 
 
-
-        # generate training & test datasets
-        train_idx, val_idx = train_test_split(feature_storage.training_indices, test_size = 0.2)
-        x_train, y_train = generate_sequential_graph_dataset(feature_storage.feature_graphs, train_idx, ocel, k = k)
-        # dgl.save_graphs('train_graph_dataset', x_train, labels = {'remaining_time': tf.constant(y_train)})
-        # x_train, y_train = dgl.load_graphs('train_graph_dataset')
-        # y_train = y_train['remaining_time']
-        x_val, y_val = generate_sequential_graph_dataset(feature_storage.feature_graphs, val_idx, ocel, k = k)
-
-        # dgl.save_graphs('val_graph_dataset', x_val, labels = {'remaining_time': tf.constant(y_val)})
-        # x_val, y_val = dgl.load_graphs('val_graph_dataset')
-        # y_val = y_val['remaining_time']
-        x_test, y_test = generate_sequential_graph_dataset(feature_storage.feature_graphs, feature_storage.test_indices, ocel, k = k)
-
-
-        # dgl.save_graphs('test_graph_dataset', x_test, labels = {'remaining_time': tf.constant(y_test)})
-        # x_test, y_test = dgl.load_graphs('test_graph_dataset')
-        # y_test = y_test['remaining_time']
-        # explore data instances
-        for idx in [3]:
-            visualize_graph(x_train[idx],str(idx)+"flat", labels='node_id')
-            #visualize_graph(x_train[idx],str(idx)+"flat", labels='event_indices')
-        # visualize_graph(x_train[idx], labels = 'remaining_time')
-        # show_remaining_times(x_train[idx])
-        visualize_instance(x_train[idx],"flat", y_train[idx])
-        # get_ordered_event_list(x_train[idx])['events']
-        # get_ordered_event_list(x_train[idx])['features']
-
-        baseline_MAE, train_MAE, val_MAE, test_MAE = GNN_prediction(layer_size, x_train, y_train, x_val, y_val, x_test,
-                                                                    y_test, batch_size=4, lr = 0.005)
-        # record performance of GNN
-        accuracy_dict['flat_gnn_k_' + str(k)] = {
-            'baseline_MAE': baseline_MAE,
-            'train_MAE': train_MAE,
-            'val_MAE': val_MAE,
-            'test_MAE': test_MAE
-        }
-        print(pd.DataFrame(accuracy_dict))
-
-    if True:
-        print("___________________________")
-        print("Prediction with Graph Embedding")
-        print("___________________________")
-        train_nx_feature_graphs = []
-        test_nx_feature_graphs = []
-        train_target = []
-        test_target = []
-        print("Constructing Subgraphs ")
-        for i in tqdm(feature_storage.training_indices):
-            g = feature_storage.feature_graphs[i]
-            converted_subgraphs, extracted_targets = convert_to_nx_graphs(g, ocel, k,
-                                                                          target=("event_remaining_time", ()),
-                                                                          from_start=False)
-
-            train_nx_feature_graphs += converted_subgraphs
-            train_target += extracted_targets
-
-        for i in tqdm(feature_storage.test_indices):
-            g = feature_storage.feature_graphs[i]
-            converted_subgraphs, extracted_targets = convert_to_nx_graphs(g, ocel, k,
-                                                                          target=("event_remaining_time", ()),
-                                                                          from_start=False)
-            test_nx_feature_graphs += converted_subgraphs
-            test_target += extracted_targets
-
-        # IGE has problems with sparseness
-        for embedding_technique in ['FEATHER-G', 'Graph2Vec', 'NetLSD', 'WaveletCharacteristic',
-                                    # 'IGE',
-                                    'LDP', 'GL2Vec', 'SF', 'FGSD']:  # , 'TAIWAN']:
-            try:
-                X_train, X_test = embed(train_nx_feature_graphs, test_nx_feature_graphs, embedding_technique,size = 10*k)
-                print(X_train.shape)
-                print(X_test.shape)
-                model = LinearRegression()
-                model.fit(X_train, train_target)
-                res = model.predict(X_test)
-                print(mean_absolute_error(test_target, res))
-                accuracy_dict['embed_reg_'+ embedding_technique+'_k_' + str(k)] = {
-                    'baseline_MAE': 0,
-                    'train_MAE': 0,
-                    'val_MAE': 0,
-                    'test_MAE': mean_absolute_error(test_target, res)
-                }
-                regr = MLPRegressor(random_state=3, max_iter=500,hidden_layer_sizes=(10,10,)).fit(X_train, train_target)
-                res = regr.predict(X_test)
-                print(mean_absolute_error(test_target, res))
-                accuracy_dict['embed_nn_' + embedding_technique + '_k_' + str(k)] = {
-                    'baseline_MAE': 0,
-                    'train_MAE': 0,
-                    'val_MAE': 0,
-                    'test_MAE': mean_absolute_error(test_target, res)
-                }
-            except ValueError:
-                accuracy_dict['embed_reg_' + embedding_technique + '_k_' + str(k)] = {
-                    'baseline_MAE': 0,
-                    'train_MAE': 0,
-                    'val_MAE': 0,
-                    'test_MAE': "NA"
-                }
-        print(pd.DataFrame(accuracy_dict))
+    feature_storage = predictive_monitoring.apply(ocel, F, [])
+    #replace synchronization time with 0 placeholder for empty feature
+    for g in feature_storage.feature_graphs:
+        for n in g.nodes:
+            n.attributes[('event_synchronization_time',())] = 1
+    feature_storage.extract_normalized_train_test_split(0.3,state = 3)
+    for g in feature_storage.feature_graphs:
+        for n in g.nodes:
+            n.attributes[('event_synchronization_time',())] = 1
+    accuracy_dict = {}
 
 
 
-pd.DataFrame(accuracy_dict).to_csv("results_tmp.csv")
+    g_set_list_t =[]
+    g_set_list_te = []
+    seq_set_list = []
+    seq_set_list_v = []
+    seq_set_list_t = []
+
+
+
+    for k in [4]:
+        if True:
+            print("___________________________")
+            print("Prediction with Graph Structure and GNN")
+            print("___________________________")
+
+            layer_size = len(F)-1
+
+            # generate training & test datasets
+            train_idx, val_idx = train_test_split(feature_storage.training_indices, test_size = 0.2)
+            x_train, y_train = generate_graph_dataset(feature_storage.feature_graphs, train_idx, ocel, k = k, target = target, include_last = include_last)
+            # dgl.save_graphs('train_graph_dataset', x_train, labels = {'remaining_time': tf.constant(y_train)})
+            # x_train, y_train = dgl.load_graphs('train_graph_dataset')
+            # y_train = y_train['remaining_time']
+            x_val, y_val = generate_graph_dataset(feature_storage.feature_graphs, val_idx, ocel, k = k,target = target, include_last = include_last)
+            # dgl.save_graphs('val_graph_dataset', x_val, labels = {'remaining_time': tf.constant(y_val)})
+            # x_val, y_val = dgl.load_graphs('val_graph_dataset')
+            # y_val = y_val['remaining_time']
+            x_test, y_test = generate_graph_dataset(feature_storage.feature_graphs, feature_storage.test_indices, ocel, k = k,target = target, include_last = include_last)
+            # dgl.save_graphs('test_graph_dataset', x_test, labels = {'remaining_time': tf.constant(y_test)})
+            # x_test, y_test = dgl.load_graphs('test_graph_dataset')
+            # y_test = y_test['remaining_time']
+            # explore data instances
+            ####for idx in [3]:
+                ####visualize_graph(x_train[idx],str(idx)+"graph", labels='node_id')
+                #visualize_graph(x_train[idx],str(idx)+"graph", labels='event_indices')
+            # visualize_graph(x_train[idx], labels = 'remaining_time')
+            # show_remaining_times(x_train[idx])
+            ####visualize_instance(x_train[idx], "graph", y_train[idx])
+            # get_ordered_event_list(x_train[idx])['events']
+            # get_ordered_event_list(x_train[idx])['features']
+
+            baseline_MAE, train_MAE, val_MAE, test_MAE = GNN_prediction(layer_size,x_train, y_train,x_val, y_val,x_test, y_test, batch_size=4, lr = 0.005)
+            # record performance of GNN
+            accuracy_dict[target[0]+'graph_gnn_k_' + str(k)] = {
+                'baseline_MAE': baseline_MAE,
+                'train_MAE': train_MAE,
+                'val_MAE': val_MAE,
+                'test_MAE': test_MAE
+            }
+            print(pd.DataFrame(accuracy_dict))
+
+
+
+
+        if True:
+            print("___________________________")
+            print("Prediction with Sequential Structure and GNN")
+            print("___________________________")
+
+            layer_size = len(F)-1
+
+
+
+            # generate training & test datasets
+            train_idx, val_idx = train_test_split(feature_storage.training_indices, test_size = 0.2)
+            x_train, y_train = generate_sequential_graph_dataset(feature_storage.feature_graphs, train_idx, ocel, k = k, target = target, include_last = include_last)
+            # dgl.save_graphs('train_graph_dataset', x_train, labels = {'remaining_time': tf.constant(y_train)})
+            # x_train, y_train = dgl.load_graphs('train_graph_dataset')
+            # y_train = y_train['remaining_time']
+            x_val, y_val = generate_sequential_graph_dataset(feature_storage.feature_graphs, val_idx, ocel, k = k, target = target, include_last = include_last)
+
+            # dgl.save_graphs('val_graph_dataset', x_val, labels = {'remaining_time': tf.constant(y_val)})
+            # x_val, y_val = dgl.load_graphs('val_graph_dataset')
+            # y_val = y_val['remaining_time']
+            x_test, y_test = generate_sequential_graph_dataset(feature_storage.feature_graphs, feature_storage.test_indices, ocel, k = k, target = target, include_last = include_last)
+
+
+            # dgl.save_graphs('test_graph_dataset', x_test, labels = {'remaining_time': tf.constant(y_test)})
+            # x_test, y_test = dgl.load_graphs('test_graph_dataset')
+            # y_test = y_test['remaining_time']
+            # explore data instances
+            ###for idx in [3]:
+            ###    visualize_graph(x_train[idx],str(idx)+"flat", labels='node_id')
+                #visualize_graph(x_train[idx],str(idx)+"flat", labels='event_indices')
+            # visualize_graph(x_train[idx], labels = 'remaining_time')
+            # show_remaining_times(x_train[idx])
+            ###visualize_instance(x_train[idx],"flat", y_train[idx])
+            # get_ordered_event_list(x_train[idx])['events']
+            # get_ordered_event_list(x_train[idx])['features']
+
+            baseline_MAE, train_MAE, val_MAE, test_MAE = GNN_prediction(layer_size, x_train, y_train, x_val, y_val, x_test,
+                                                                        y_test, batch_size=4, lr = 0.005)
+            # record performance of GNN
+            accuracy_dict[target[0]+'flat_gnn_k_' + str(k)] = {
+                'baseline_MAE': baseline_MAE,
+                'train_MAE': train_MAE,
+                'val_MAE': val_MAE,
+                'test_MAE': test_MAE
+            }
+            print(pd.DataFrame(accuracy_dict))
+
+        if True:
+            print("___________________________")
+            print("Prediction with Graph Embedding")
+            print("___________________________")
+            train_nx_feature_graphs = []
+            test_nx_feature_graphs = []
+            train_target = []
+            test_target = []
+            print("Constructing Subgraphs ")
+            for i in tqdm(feature_storage.training_indices):
+                g = feature_storage.feature_graphs[i]
+                converted_subgraphs, extracted_targets = convert_to_nx_graphs(g, ocel, k,
+                                                                              target=target,
+                                                                              from_start=False, include_last = include_last)
+
+                train_nx_feature_graphs += converted_subgraphs
+                train_target += extracted_targets
+
+            for i in tqdm(feature_storage.test_indices):
+                g = feature_storage.feature_graphs[i]
+                converted_subgraphs, extracted_targets = convert_to_nx_graphs(g, ocel, k,
+                                                                              target=target,
+                                                                              from_start=False, include_last = include_last)
+                test_nx_feature_graphs += converted_subgraphs
+                test_target += extracted_targets
+
+            # IGE has problems with sparseness
+            for embedding_technique in ['FEATHER-G', 'Graph2Vec', 'NetLSD', 'WaveletCharacteristic',
+                                        # 'IGE',
+                                        'LDP', 'GL2Vec', 'SF', 'FGSD']:  # , 'TAIWAN']:
+                try:
+                    X_train, X_test = embed(train_nx_feature_graphs, test_nx_feature_graphs, embedding_technique,size = 10*k)
+                    print(X_train.shape)
+                    print(X_test.shape)
+                    model = LinearRegression()
+                    model.fit(X_train, train_target)
+                    res = model.predict(X_test)
+                    print(mean_absolute_error(test_target, res))
+                    accuracy_dict[target[0]+'embed_reg_'+ embedding_technique+'_k_' + str(k)] = {
+                        'baseline_MAE': 0,
+                        'train_MAE': 0,
+                        'val_MAE': 0,
+                        'test_MAE': mean_absolute_error(test_target, res)
+                    }
+                    regr = MLPRegressor(random_state=3, max_iter=500,hidden_layer_sizes=(10,10,)).fit(X_train, train_target)
+                    res = regr.predict(X_test)
+                    print(mean_absolute_error(test_target, res))
+                    accuracy_dict[target[0]+'embed_nn_' + embedding_technique + '_k_' + str(k)] = {
+                        'baseline_MAE': 0,
+                        'train_MAE': 0,
+                        'val_MAE': 0,
+                        'test_MAE': mean_absolute_error(test_target, res)
+                    }
+                except ValueError:
+                    accuracy_dict[target[0]+'embed_reg_' + embedding_technique + '_k_' + str(k)] = {
+                        'baseline_MAE': 0,
+                        'train_MAE': 0,
+                        'val_MAE': 0,
+                        'test_MAE': "NA"
+                    }
+                    accuracy_dict[target[0] + 'embed_nn_' + embedding_technique + '_k_' + str(k)] = {
+                        'baseline_MAE': 0,
+                        'train_MAE': 0,
+                        'val_MAE': 0,
+                        'test_MAE': "NA"
+                    }
+            print(pd.DataFrame(accuracy_dict))
+
+
+
+    pd.DataFrame(accuracy_dict).to_csv("results_"+target[0]+".csv")
 
