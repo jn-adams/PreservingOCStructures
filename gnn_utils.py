@@ -4,20 +4,13 @@ import json
 
 import ocpa.algo.predictive_monitoring.obj
 
-dd = os.path.join(os.path.expanduser('~'),'.dgl')
-#print(dd)
 dd = os.path.join(dd,'config.json')
-#print(dd)
 with open(dd, "r") as config_file:
     config_dict = json.load(config_file)
     backend_name = config_dict.get('backend', '').lower()
 print(backend_name)
 os.environ['CUDA_VISIBLE_DEVICES'] = '-1'
-#print(os.environ['DGLBACKEND'])
-#os.environ['DGLBACKEND'] = "tensorflow"
 os.environ['DGLBACKEND'] = 'tensorflow'
-#print(os.environ['DGLBACKEND'])
-#os.environ['DGLBACKEND'] = ["tensorflow"]
 import dgl
 import numpy as np
 import pandas as pd
@@ -28,6 +21,7 @@ from matplotlib import pyplot as plt
 from tqdm import tqdm
 from copy import deepcopy
 import globals
+import time
 
 # create graph dataset & labels for remaining time regression
 def generate_sequential_graph_dataset(feature_graph_list, indices, ocel_object, k, target, include_last=True):
@@ -95,10 +89,6 @@ def generate_sequential_graph_dataset(feature_graph_list, indices, ocel_object, 
                 subgraph = dgl.node_subgraph(dgl_graph, nodes=range(i - (k - 1), i + 1))  # include last event
                 subgraph_label = subgraph.ndata[target[0]].numpy()[-1]
 
-                if not np.all(dgl.to_bidirected(subgraph).in_degrees() > 0):
-                    # raise ValueError('ERROR: 0-in-degree nodes found!')
-                    pass
-                #set_list.append(sorted([int(x) for x in subgraph.ndata['event_indices'].numpy().tolist()]))
                 graph_list.append(subgraph)
                 label_list.append(subgraph_label)
 
@@ -111,8 +101,11 @@ def generate_graph_dataset(feature_graph_list, indices, ocel_object, k,target,in
     idx = indices
     graph_list = []
     label_list = []
+    ext_time = 0
+    sub_time = 0
+    t_time = time.time()
     for gid in tqdm(idx):
-
+        s_time = time.time()
         # copy graph to prevent changes to feature storage
         graph = deepcopy(feature_graph_list[gid])
 
@@ -120,7 +113,7 @@ def generate_graph_dataset(feature_graph_list, indices, ocel_object, k,target,in
         instance_df = ocel_object.log.log.loc[[n.event_id for n in graph.nodes]].copy()
         instance_df = instance_df.sort_values('event_timestamp')
         node_id_map = {id: i for i, id in enumerate(instance_df.index)}
-
+        ext_time += time.time()-s_time
         # define DGL graph
         dgl_graph = dgl.graph(
             data = ([node_id_map[e.source] for e in graph.edges],
@@ -152,17 +145,24 @@ def generate_graph_dataset(feature_graph_list, indices, ocel_object, k,target,in
         if not include_last:
             correct = 1
         for i in range(k - 1, len(sorted_node_indices) - correct):
-                subgraph = dgl.node_subgraph(dgl_graph, nodes = range(i-(k-1),i+1)) # include last event
-                subgraph_label = subgraph.ndata[target[0]].numpy()[-1]
+            s_time = time.time()
+            subgraph = dgl.node_subgraph(dgl_graph, nodes = range(i-(k-1),i+1)) # include last event
 
-                if not np.all(dgl.to_bidirected(subgraph).in_degrees() > 0):
-                    # raise ValueError('ERROR: 0-in-degree nodes found!')
-                    pass
-                #print(subgraph.ndata['event_indices'])
-                graph_list.append(subgraph)
-                label_list.append(subgraph_label)
+            subgraph_label = subgraph.ndata[target[0]].numpy()[-1]
 
+            sub_time += time.time() - s_time
+            #print(subgraph.ndata['event_indices'])
+            graph_list.append(subgraph)
+            label_list.append(subgraph_label)
+
+    print(ext_time)
+    print(sub_time)
+    print(time.time()-t_time)
     return graph_list, label_list
+
+
+
+
 
 # show table of events and features in graph
 def get_ordered_event_list(graph):
@@ -273,15 +273,10 @@ class GCN(tf.keras.Model):
         #print(g.ndata['features'])
         h = self.gconv_1(g, g.ndata['features'])
         h = tf.keras.activations.gelu(h)
-        #print(h)
         h = self.gconv_2(g, h)
-        #print(h)
         h = tf.keras.activations.gelu(h)
-        #print(h)
         x = tf.reshape(h, (int(h.shape[0] / g.ndata['k'][0]), (g.ndata['k'][0] * h.shape[1])))
         out = self.dense(x)
-        #print(out)
-        #adsfadf
         return out
 
 # function to evaluate model on specific data loader
@@ -308,18 +303,12 @@ class ClassificationGCN(tf.keras.Model):
         self.dense = tf.keras.layers.Dense(n_classes, activation = 'linear')
 
     def call(self, g, input_features):
-        #print(g.ndata['features'])
         h = self.gconv_1(g, g.ndata['features'])
         h = tf.keras.activations.gelu(h)
-        #print(h)
         h = self.gconv_2(g, h)
-        #print(h)
         h = tf.keras.activations.gelu(h)
-        #print(h)
         x = tf.reshape(h, (int(h.shape[0] / g.ndata['k'][0]), (g.ndata['k'][0] * h.shape[1])))
         out = self.dense(x)
-        #print(out)
-        #adsfadf
         return out
 
 # function to evaluate model on specific data loader
