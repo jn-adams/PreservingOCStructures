@@ -20,7 +20,6 @@ from dgl.nn import GraphConv
 from matplotlib import pyplot as plt
 from tqdm import tqdm
 from copy import deepcopy
-import globals
 import time
 
 # create graph dataset & labels for remaining time regression
