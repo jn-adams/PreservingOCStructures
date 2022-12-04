@@ -3,7 +3,7 @@ import os
 import json
 
 import ocpa.algo.predictive_monitoring.obj
-
+dd = os.path.join(os.path.expanduser('~'),'.dgl')
 dd = os.path.join(dd,'config.json')
 with open(dd, "r") as config_file:
     config_dict = json.load(config_file)
